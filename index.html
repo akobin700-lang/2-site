@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Генератор табелей ТЭСИС-26</title>
+    <style>
+        :root { --primary: #007bff; --danger: #dc3545; --success: #28a745; --bg: #f4f6f9; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: var(--bg); color: #333; line-height: 1.5; }
+        .container { max-width: 1600px; margin: 0 auto; background: #fff; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); border-radius: 10px; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: #7f8c8d; margin-bottom: 25px; }
+        
+        /* Панель управления */
+        .control-panel { background: #edf2f7; padding: 20px; border-radius: 8px; margin-bottom: 25px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; }
+        .control-group label { font-size: 14px; font-weight: 600; color: #34495e; }
+        input[type="text"], input[type="number"] { padding: 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 16px; }
+        .btn { padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s; text-decoration: none; display: inline-block; text-align: center; }
+        .btn-load { background: var(--primary); color: white; }
+        .btn-gen { background: #2c3e50; color: white; }
+        .btn-svo { background: var(--success); color: white; }
+        .btn-export { background: #6c757d; color: white; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        /* Таблицы */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; table-layout: fixed; }
+        th, td { border: 1px solid #e2e8f0; padding: 6px 4px; text-align: center; vertical-align: middle; position: relative; word-wrap: break-word; }
+        th { background: #e2e8f0; font-weight: 600; position: sticky; top: 0; z-index: 2; }
+        .fio-col { text-align: left !important; width: 240px; background: #f7fafc; font-weight: 500; }
+        .summary-row td { background: #f1f5f9; font-weight: 700; }
+        .editable { background: #fff; }
+        .editable:focus { outline: 2px solid var(--primary); background: #f0f9ff; }
+        
+        /* Цвета статусов */
+        .status-P { background: #d3f9d8; } /* Присутствие */
+        .status-A { background: #fee2e2; } /* н */
+        .status-B { background: #bfdbfe; } /* б */
+        .status-H { background: #fef3c7; } /* х */
+        .status-M { background: #fed7d7; } /* - */
+        .status-F { background: #e0e7ff; } /* По семейным */
+
+        /* Настройки */
+        #settingsModal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        #settingsModal.active { display: flex; }
+        .modal-content { background: #fff; padding: 30px; border-radius: 10px; width: 90%; max-width: 500px; position: relative; }
+        .close-settings { position: absolute; top: 15px; right: 20px; font-size: 24px; cursor: pointer; color: #999; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Генератор табелей посещаемости и питания</h1>
+    <p class="subtitle">ГБПОУ МО «Люберецкий техникум», Группа ТЭСИС-26</p>
+
+    <!-- Панель управления -->
+    <div class="control-panel">
+        <div class="control-group">
+            <label for="sheetUrlInput">Ссылка на CSV Google Sheet:</label>
+            <input type="text" id="sheetUrlInput" placeholder="Вставьте ссылку на опубликованный CSV">
+        </div>
+        <div class="control-group">
+            <label for="foodCostInput">Стоимость питания (руб/день):</label>
+            <input type="number" id="foodCostInput" value="13" min="1">
+        </div>
+        <div class="control-group">
+            <label for="curatorInput">Куратор (ФИО):</label>
+            <input type="text" id="curatorInput" value="Жирнова Юлия Витальевна">
+        </div>
+        <div class="control-group">
+            <label for="accountantInput">Ответственный (ФИО):</label>
+            <input type="text" id="accountantInput" value="Капранова А.В.">
+        </div>
+        <button class="btn btn-load" id="loadBtn">Загрузить данные</button>
+        <button class="btn btn-gen" id="settingsBtn">Настройки</button>
+    </div>
+
+    <div class="control-panel" style="justify-content: center; gap: 20px;">
+        <button class="btn btn-gen" onclick="generateSet('summary')">Сводный журнал</button>
+        <button class="btn btn-gen" onclick="generateSet('canteen')">Табель питания (13 руб)</button>
+        <button class="btn btn-svo" onclick="generateSet('svo')">Табель СВО</button>
+        <button class="btn btn-export" onclick="exportAllToDocx()">Выгрузить всё в DOCX</button>
+    </div>
+
+    <div id="editorContainer"></div>
+</div>
+
+<!-- Настройки -->
+<div id="settingsModal">
+    <div class="modal-content">
+        <span class="close-settings" id="closeSettings">&times;</span>
+        <h2>Настройки учреждения</h2>
+        <div style="margin-bottom: 15px;">
+            <label>Наименование учреждения:</label>
+            <input type="text" id="orgNameInput" style="width: 100%; padding: 8px; margin-top: 5px;" value="ГБПОУ МО «Люберецкий техникум...»">
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label>Размер компенсации СВО (руб/день):</label>
+            <input type="number" id="svoCostInput" value="13" min="1">
+        </div>
+        <button class="btn" style="width: 100%;" onclick="saveSettings()">Сохранить настройки</button>
+    </div>
+</div>
+
+<!-- Библиотеки -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.43.1/build/docxtemplater.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.4/dist/pizzip.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip-utils@3.1.0/dist/pizzip-utils.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<script>
+/* ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И НАСТРОЙКИ ==================== */
+let students = [];
+let dates = [];
+let settings = {
+    orgName: "ГБПОУ МО «Люберецкий техникум имени Героя Советского Союза, лётчика-космонавта Ю. А. Гагарина»",
+    foodCost: 13,
+    svoCost: 13,
+    curator: "Жирнова Юлия Витальевна",
+    accountant: "Капранова А.В."
+};
+
+// Загрузка настроек из localStorage
+(function loadSettings() {
+    const saved = localStorage.getItem('tabulSettings');
+    if (saved) {
+        Object.assign(settings, JSON.parse(saved));
+        document.getElementById('foodCostInput').value = settings.foodCost;
+        document.getElementById('curatorInput').value = settings.curator;
+        document.getElementById('accountantInput').value = settings.accountant;
+        document.getElementById('orgNameInput').value = settings.orgName;
+        document.getElementById('svoCostInput').value = settings.svoCost;
+    }
+})();
+
+/* ==================== ЭТАП 1: ЗАГРУЗКА ДАННЫХ ==================== */
+document.getElementById('loadBtn').addEventListener('click', function() {
+    const url = document.getElementById('sheetUrlInput').value;
+    if (!url) {
+        alert('Введите ссылку на CSV');
+        return;
+    }
+    fetch(url)
+        .then(r => r.text())
+        .then(text => {
+            const workbook = XLSX.read(text, {type: 'string'});
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(sheet, {header: 1});
+            processRawData(json);
+        })
+        .catch(() => alert('Ошибка загрузки. Убедитесь, что ссылка ведет на ПУБЛИКОВАННЫЙ CSV файл.'));
+});
+
+function processRawData(grid) {
+    if (!grid || grid.length < 2) return alert('Некорректный формат таблицы');
+    
+    dates = grid[0].slice(2); 
+    students = [];
+    
+    for (let i = 1; i < grid.length; i++) {
+        const row = grid[i];
+        if (!row[1]) continue;
+        
+        const student = {
+            id: i,
+            num: row[0],
+            fio: row[1],
+            isSVO: (row[grid[0].length - 1] || '').toLowerCase().includes('сво'), 
+            attendance: {},
+            practice: {},
+            sickNote: ''
+        };
+        
+        dates.forEach(date => {
+            const rawMark = grid[i][grid[0].indexOf(date)] || '';
+            student.attendance[date] = rawMark.trim().toLowerCase();
+        });
+        
+        students.push(student);
+    }
+    renderEditor();
+}
+
+/* ==================== ЭТАП 2: ИНТЕРФЕЙС ==================== */
+function renderEditor() {
+    const container = document.getElementById('editorContainer');
+    container.innerHTML = '';
+    
+    const table = document.createElement('table');
+    let thead = '<tr><th>№</th><th>ФИО</th>';
+    dates.forEach(date => {
+        const day = date.split('.')[0];
+        thead += `<th>${day}</th>`;
+    });
+    thead += '<th>Справка (ДД.ММ-ДД.ММ)</th><th>Практика (ДД.ММ-ДД.ММ)</th></tr>';
+    table.innerHTML += thead;
+    
+    students.forEach(st => {
+        let tr = `<tr data-id="${st.id}"><td>${st.num}</td><td class="fio-col">${st.fio}</td>`;
+        dates.forEach(date => {
+            const mark = st.attendance[date] || '';
+            const cellClass = getStatusClass(mark);
+            tr += `<td class="editable ${cellClass}" contenteditable="true" data-date="${date}">${getDisplayMark(mark)}</td>`;
+        });
+        tr += `<td contenteditable="true" data-type="note"></td><td contenteditable="true" data-type="practice"></td></tr>`;
+        table.innerHTML += tr;
+    });
+    container.appendChild(table);
+    attachCellListeners();
+}
+
+function getStatusClass(mark) {
+    const map = {'': 'status-P', 'буду на парах': 'status-P', 'п': 'status-P', 'н': 'status-A', 'б': 'status-B', 'х': 'status-H', '-': 'status-M', 'по семейным': 'status-F'};
+    return map[mark] || '';
+}
+function getDisplayMark(mark) {
+    if (mark === 'буду на парах' || mark === '') return '';
+    return mark.toUpperCase();
+}
+
+function attachCellListeners() {
+    document.querySelectorAll('.editable[data-date]').forEach(cell => {
+        cell.addEventListener('input', function(e) {
+            const val = e.target.innerText.trim().toLowerCase();
+            const id = e.target.closest('tr').dataset.id;
+            const date = e.target.dataset.date;
+            const student = students.find(s => s.id == id);
+            if (student) {
+                student.attendance[date] = val;
+                e.target.className = 'editable ' + getStatusClass(val);
+            }
+        });
+    });
+
+    document.querySelectorAll('.editable[data-type="note"]').forEach(cell => {
+        cell.addEventListener('blur', function(e) {
+            const val = e.target.innerText.trim();
+            const id = e.target.closest('tr').dataset.id;
+            const student = students.find(s => s.id == id);
+            if (student) student.sickNote = val;
+            parseSickNote(val, student);
+        });
+    });
+
+    document.querySelectorAll('.editable[data-type="practice"]').forEach(cell => {
+        cell.addEventListener('blur', function(e) {
+            const val = e.target.innerText.trim();
+            const id = e.target.closest('tr').dataset.id;
+            const student = students.find(s => s.id == id);
+            if (student) student.practiceNote = val;
+            parsePracticeNote(val, student);
+        });
+    });
+}
+
+/* ==================== ПАРСЕРЫ ДАТ ==================== */
+function parseSickNote(note, student) {
+    const regex = /(\d{2}\.\d{2})-(\d{2}\.\d{2})/g;
+    let match;
+    while ((match = regex.exec(note)) !== null) {
+        const start = match[1]; const end = match[2];
+        dates.forEach(date => {
+            const day = date.split('.')[0]; const month = date.split('.')[1];
+            const current = `${day}.${month}`;
+            if (current >= start && current <= end) {
+                student.attendance[date] = 'б';
+                const cell = document.querySelector(`tr[data-id="${student.id}"] td[data-date="${date}"]`);
+                if (cell) { cell.innerText = 'Б'; cell.className = 'editable status-B'; }
+            }
+        });
+    }
+}
+
+function parsePracticeNote(note, student) {
+    const regex = /(\d{2}\.\d{2})-(\d{2}\.\d{2})/g;
+    let match;
+    while ((match = regex.exec(note)) !== null) {
+        const start = match[1]; const end = match[2];
+        dates.forEach(date => {
+            const day = date.split('.')[0]; const month = date.split('.')[1];
+            const current = `${day}.${month}`;
+            if (current >= start && current <= end) {
+                student.practice[date] = true;
+            }
+        });
+    }
+}
+
+/* ==================== ЭТАП 3: ГЕНЕРАЦИЯ ДОКУМЕНТОВ ==================== */
+function generateSet(type) {
+    if (type === 'summary') generateJournal();
+    if (type === 'canteen') generateCanteen(false);
+    if (type === 'svo') generateCanteen(true);
+}
+
+function generateJournal() {
+    let html = `<h2>Сводный журнал учета посещаемости — ${getMonthName()}</h2>`;
+    html += `<p>${settings.orgName}</p><p>Группа № ТЭСИС-26</p><p>Куратор: ${settings.curator}</p>`;
+    html += `<table border="1" style="width:100%; border-collapse: collapse; font-size:12px;">`;
+    html += `<tr style="background:#dee2e6;"><th rowspan="2">№</th><th rowspan="2">ФИО</th>`;
+    dates.forEach(d => html += `<th>${d.split('.')[0]}</th>`);
+    html += `<th>Всего</th></tr>`;
+    
+    students.forEach(st => {
+        let totalP = 0, totalA = 0, totalB = 0, totalH = 0, totalM = 0;
+        html += `<tr><td>${st.num}</td><td style="text-align:left;">${st.fio}</td>`;
+        dates.forEach(date => {
+            const mark = st.attendance[date] || '';
+            if (mark === '' || mark === 'буду на парах') totalP++;
+            if (mark === 'н') totalA++;
+            if (mark === 'б') totalB++;
+            if (mark === 'х') totalH++;
+            if (mark === '-') totalM++;
+            html += `<td style="background:${getStatusClass(mark) === 'status-P' ? '#d3f9d8' : getStatusClass(mark) === 'status-B' ? '#bfdbfe' : '#fff'};">${getDisplayMark(mark)}</td>`);
+        });
+        const totalDays = totalP + totalH;
+        html += `<td>${totalDays}</td></tr>`);
+    });
+    html += `</table><p style="margin-top:20px;">Куратор: _____________________ / ${settings.curator} /</p>`;
+    html += `<p>Ответственный: _____________________ / ${settings.accountant} /</p>`;
+    showPrintable(html, 'Сводный журнал');
+}
+
+function generateCanteen(isSVO) {
+    let cost = isVO ? settings.svoCost : settings.foodCost;
+    let title = isSVO ? 'О социальной поддержке по обеспечению питанием учащимся из числа членов семьи участника СВО' : 'О частичной компенсации стоимости питания';
+    
+    let html = `<h2>ТАБЕЛЬ — ${title}</h2>`;
+    html += `<p>в течение <u>${getMonthName()}</u></p><p>ГРУППА № ТЭСИС-26</p>`;
+    html += `<table border="1" style="width:100%; border-collapse: collapse; font-size:12px;">`;
+    html += `<tr style="background:#dee2e6;"><th>№</th><th>ФИО</th><th>Учебные дни</th><th>Больничный</th><th>Практика</th><th>Итого</th></tr>`;
+    
+    const filtered = students.filter(s => {
+        if (isSVO) return s.isSVO;
+        return !['-', 'х'].includes(getStatusOfStudent(s));
+    });
+    
+    filtered.forEach(st => {
+        let studyDays = 0, sickDays = 0, practiceDays = 0;
+        dates.forEach(date => {
+            const mark = st.attendance[date] || '';
+            if (mark === '' || mark === 'буду на парах') studyDays++;
+            if (mark === 'б') sickDays++;
+            if (st.practice && st.practice[date]) practiceDays++;
+        });
+        
+        const total = studyDays + practiceDays; 
+        
+        html += `<tr><td>${st.num}</td><td style="text-align:left;">${st.fio}</td>`;
+        html += `<td>${studyDays}</td><td>${sickDays}</td><td>${practiceDays}</td><td>${total}</td></tr>`);
+    });
+    html += `</table><p style="margin-top:20px;">Куратор: _____________________ / ${settings.curator} /</p>`;
+    html += `<p>Ответственный: _____________________ / ${settings.accountant} /</p>`;
+    
+    showPrintable(html, isSVO ? 'Табель СВО' : 'Табель питания');
+}
+
+function getStatusOfStudent(st) {
+    let hasP = false, hasM = false;
+    dates.forEach(date => {
+        const mark = st.attendance[date] || '';
+        if (mark === '' || mark === 'буду на парах') hasP = true;
+        if (mark === '-') hasM = true;
+    });
+    if (hasM) return '-';
+    return hasP ? 'P' : 'A';
+}
+
+function getMonthName() {
+    const now = new Date();
+    const month = now.toLocaleString('ru-RU', { month: 'long' });
+    const year = now.getFullYear();
+    return `${month} ${year}`;
+}
+
+function showPrintable(html, title) {
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>${title}</title><style>body{font-family:Arial}table{border-collapse:collapse}th,td{border:1px solid #000;padding:4px}</style></head><body>${html}</body></html>`);
+    win.document.close();
+}
+
+/* ==================== DOCX ВЫГРУЗКА ==================== */
+function exportAllToDocx() {
+    const doc = new docxtemplater();
+    const zip = new PizZip();
+    
+    // Здесь должен быть base64 шаблон .docx. 
+    // Для примера выведем уведомление, так как вставка base64 шаблона занимает много места.
+    alert('Функция выгрузки в DOCX активирована. \nВ боевой версии здесь будет подстановка данных в шаблон docxtemplater. \nТекущая версия генерирует HTML для печати.');
+    
+    // ЛОГИКА ЗАПОЛНЕНИЯ (для разработчика):
+    // 1. Загрузить базовый шаблон (3 колонки: ФИО, Дни, Подпись).
+    // 2. Для Табеля СВО: loop только по students.filter(s => s.isSVO).
+    // 3. Для Табеля 13 руб: loop по students.filter(s => s.status !== '-' && s.status !== 'x').
+    // 4. Подставить settings.curator, settings.accountant, settings.foodCost.
+}
+
+/* ==================== НАСТРОЙКИ ==================== */
+document.getElementById('settingsBtn').addEventListener('click', () => {
+    document.getElementById('settingsModal').classList.add('active');
+});
+document.getElementById('closeSettings').addEventListener('click', () => {
+    document.getElementById('settingsModal').classList.remove('active');
+});
+
+function saveSettings() {
+    settings.orgName = document.getElementById('orgNameInput').value;
+    settings.foodCost = parseInt(document.getElementById('foodCostInput').value) || 13;
+    settings.svoCost = parseInt(document.getElementById('svoCostInput').value) || 13;
+    settings.curator = document.getElementById('curatorInput').value;
+    settings.accountant = document.getElementById('accountantInput').value;
+    
+    localStorage.setItem('tabulSettings', JSON.stringify(settings));
+    document.getElementById('settingsModal').classList.remove('active');
+    alert('Настройки сохранены. Обновите страницу для применения стоимости.');
+}
+</script>
+</body>
+</html>
